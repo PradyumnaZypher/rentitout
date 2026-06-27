@@ -16,6 +16,7 @@ import About from '@/pages/About'
 import ListItem from '@/pages/ListItem'
 import EditListing from '@/pages/EditListing'
 import Messages from '@/pages/Messages'
+import Verified from '@/pages/Verified'
 import { Spinner } from '@/components/ui/spinner'
 
 import DashboardLayout from '@/pages/Dashboard/index'
@@ -50,6 +51,7 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/verified" element={<Verified />} />
 
       {/* Protected routes with navbar + footer */}
       <Route

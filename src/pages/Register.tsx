@@ -70,10 +70,11 @@ export default function Register() {
   const password = watch('password', '')
 
   const onSubmit = async (data: FormData) => {
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
       options: {
+        emailRedirectTo: `${window.location.origin}/verified`,
         data: { name: data.name, city: data.city },
       },
     })
@@ -85,8 +86,16 @@ export default function Register() {
       }
       return
     }
-    toast.success('Account created! Welcome to RentItOut!')
-    navigate('/dashboard')
+
+    if (signUpData.session) {
+      toast.success('Account created! Welcome to RentItOut!')
+      navigate('/dashboard')
+    } else {
+      toast.success('Check your inbox to verify your email address before logging in.', {
+        duration: 8000,
+      })
+      navigate('/login')
+    }
   }
 
   return (

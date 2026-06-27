@@ -24,7 +24,13 @@ export default function Login() {
       })
       console.log('Supabase response:', data, error)
       if (error) {
-        toast.error(error.message === 'Invalid login credentials' ? 'Invalid email or password' : error.message)
+        let msg = error.message
+        if (msg === 'Invalid login credentials') {
+          msg = 'Invalid email or password'
+        } else if (msg.toLowerCase().includes('email not confirmed') || msg.toLowerCase().includes('not confirmed')) {
+          msg = 'Your email has not been verified yet. Please check your inbox and verify your email to log in.'
+        }
+        toast.error(msg)
         return
       }
       toast.success('Welcome back!')
