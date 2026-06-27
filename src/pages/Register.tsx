@@ -79,11 +79,13 @@ export default function Register() {
       },
     })
     if (error) {
-      if (error.message.includes('already registered')) {
-        toast.error('An account with this email already exists')
-      } else {
-        toast.error(error.message)
+      let msg = error.message
+      if (msg.includes('already registered')) {
+        msg = 'An account with this email already exists'
+      } else if (msg.toLowerCase().includes('sending confirmation email') || msg.toLowerCase().includes('unexpected_failure')) {
+        msg = 'Failed to send confirmation email. This is usually caused by incorrect SMTP credentials (e.g. Gmail App Password or Resend Key) in your Supabase Dashboard settings under Authentication -> Providers -> SMTP.'
       }
+      toast.error(msg, { duration: 10000 })
       return
     }
 
