@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { UserAvatar } from '@/components/shared/UserAvatar'
+import { NotificationCenter } from '@/components/notifications/NotificationCenter'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 
@@ -95,6 +96,10 @@ export function Navbar() {
                 <PlusCircle className="size-4" />
                 List Item
               </Button>
+
+              <div className={cn("hidden md:flex", scrolled || !isHome ? "text-foreground" : "text-white")}>
+                <NotificationCenter />
+              </div>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

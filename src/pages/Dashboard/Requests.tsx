@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom'
 import { Check, X, Calendar } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import { UserAvatar } from '@/components/shared/UserAvatar'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { supabase } from '@/lib/supabase'
@@ -24,6 +28,7 @@ export default function Requests() {
   const [bookings, setBookings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [confirmAction, setConfirmAction] = useState<{ id: string, status: string, title: string, desc: string, isDestructive?: boolean } | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -38,7 +43,7 @@ export default function Requests() {
 
     const { data } = await supabase
       .from('bookings')
-      .select('*, renter:profiles!renter_id(name,avatar_url,city), listing:listings(title,images,price_per_day)')
+      .select('*, renter:public_profiles!renter_id(name,avatar_url,city), listing:listings(title,images,price_per_day)')
       .in('listing_id', myListings.map((l) => l.id))
       .order('created_at', { ascending: false })
 
@@ -46,11 +51,34 @@ export default function Requests() {
     setLoading(false)
   }
 
-  const updateStatus = async (id: string, status: string) => {
+  const executeUpdate = async (id: string, status: string) => {
     const { error } = await supabase.from('bookings').update({ status }).eq('id', id)
-    if (error) { toast.error('Failed to update'); return }
+    if (error) {
+      if (error.message.includes('Invalid transition') || error.message.includes('Unauthorized')) {
+        toast.error('This booking has already been updated. Refreshing the latest status.')
+        loadRequests()
+      } else {
+        toast.error(error.message || 'Failed to update')
+      }
+      setConfirmAction(null)
+      return
+    }
     setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status } : b))
     toast.success(`Request ${status.toLowerCase()}`)
+    setConfirmAction(null)
+  }
+
+  const handleActionClick = (id: string, status: string) => {
+    if (status === 'DECLINED') {
+      setConfirmAction({ id, status, title: 'Decline Request?', desc: 'Are you sure you want to decline this request? The user will be notified.', isDestructive: true })
+    } else if (status === 'COMPLETED') {
+      setConfirmAction({ id, status, title: 'Mark as Completed?', desc: 'Are you sure the rental period is over and the item has been returned safely?', isDestructive: false })
+    } else if (status === 'CANCELLED') {
+      setConfirmAction({ id, status, title: 'Cancel Booking?', desc: 'Are you sure you want to cancel this accepted booking? This cannot be undone.', isDestructive: true })
+    } else {
+      // ACCEPTED can execute immediately
+      executeUpdate(id, status)
+    }
   }
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter)
@@ -130,18 +158,23 @@ export default function Requests() {
 
                   {booking.status === 'PENDING' && (
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => updateStatus(booking.id, 'ACCEPTED')} className="bg-green-500 hover:bg-green-600 text-white gap-1.5">
+                      <Button size="sm" onClick={() => handleActionClick(booking.id, 'ACCEPTED')} className="bg-green-500 hover:bg-green-600 text-white gap-1.5">
                         <Check className="size-3.5" /> Accept
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => updateStatus(booking.id, 'DECLINED')} className="text-destructive border-destructive/30 hover:bg-destructive/10 gap-1.5">
+                      <Button size="sm" variant="outline" onClick={() => handleActionClick(booking.id, 'DECLINED')} className="text-destructive border-destructive/30 hover:bg-destructive/10 gap-1.5">
                         <X className="size-3.5" /> Decline
                       </Button>
                     </div>
                   )}
                   {booking.status === 'ACCEPTED' && (
-                    <Button size="sm" onClick={() => updateStatus(booking.id, 'COMPLETED')} className="bg-blue-500 hover:bg-blue-600 text-white">
-                      Mark as Completed
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => handleActionClick(booking.id, 'COMPLETED')} className="bg-blue-500 hover:bg-blue-600 text-white">
+                        Mark as Completed
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleActionClick(booking.id, 'CANCELLED')} className="text-destructive border-destructive/30 hover:bg-destructive/10">
+                        Cancel Booking
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -149,6 +182,24 @@ export default function Requests() {
           ))}
         </div>
       )}
+
+      <AlertDialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmAction?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmAction?.desc}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Go Back</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => confirmAction && executeUpdate(confirmAction.id, confirmAction.status)}
+              className={confirmAction?.isDestructive ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
+            >
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

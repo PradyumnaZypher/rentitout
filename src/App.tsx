@@ -4,6 +4,7 @@ import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { ScrollToTop } from '@/components/shared/ScrollToTop'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
+import { AdminGuard } from '@/components/auth/AdminGuard'
 import { useAuth } from '@/hooks/useAuth'
 
 import Home from '@/pages/Home'
@@ -12,7 +13,9 @@ import ListingDetail from '@/pages/ListingDetail'
 import Login from '@/pages/Login'
 import Register from '@/pages/Register'
 import ForgotPassword from '@/pages/ForgotPassword'
+import ResetPassword from '@/pages/ResetPassword'
 import About from '@/pages/About'
+import PublicProfile from '@/pages/PublicProfile'
 import ListItem from '@/pages/ListItem'
 import EditListing from '@/pages/EditListing'
 import Messages from '@/pages/Messages'
@@ -20,11 +23,14 @@ import Verified from '@/pages/Verified'
 import { Spinner } from '@/components/ui/spinner'
 
 import DashboardLayout from '@/pages/Dashboard/index'
+import AdminDashboard from '@/pages/Admin/Dashboard'
+import AdminFinancials from '@/pages/Admin/Financials'
 import DashboardOverview from '@/pages/Dashboard/Overview'
 import MyListings from '@/pages/Dashboard/MyListings'
 import MyRentals from '@/pages/Dashboard/MyRentals'
 import Requests from '@/pages/Dashboard/Requests'
 import Profile from '@/pages/Dashboard/Profile'
+import Payouts from '@/pages/Dashboard/Payouts'
 
 function AppRoutes() {
   // useAuth() is called here to initialize the store once for the entire app.
@@ -45,13 +51,21 @@ function AppRoutes() {
       <Route path="/" element={<><Navbar /><Home /><Footer /></>} />
       <Route path="/browse" element={<><Navbar /><Browse /><Footer /></>} />
       <Route path="/listing/:id" element={<><Navbar /><ListingDetail /><Footer /></>} />
+      <Route path="/profile/:id" element={<><Navbar /><PublicProfile /><Footer /></>} />
       <Route path="/about" element={<><Navbar /><About /><Footer /></>} />
 
       {/* Auth routes (no navbar/footer) */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/verified" element={<Verified />} />
+
+      {/* Admin routes with navbar + footer */}
+      <Route element={<AdminGuard />}>
+        <Route path="/admin" element={<><Navbar /><AdminDashboard /><Footer /></>} />
+        <Route path="/admin/financials" element={<><Navbar /><AdminFinancials /><Footer /></>} />
+      </Route>
 
       {/* Protected routes with navbar + footer */}
       <Route
@@ -98,6 +112,7 @@ function AppRoutes() {
         <Route path="my-listings" element={<MyListings />} />
         <Route path="my-rentals" element={<MyRentals />} />
         <Route path="requests" element={<Requests />} />
+        <Route path="payouts" element={<Payouts />} />
         <Route path="profile" element={<Profile />} />
       </Route>
 

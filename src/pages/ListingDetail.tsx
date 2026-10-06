@@ -16,8 +16,10 @@ import {
 } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
-import { format, addDays } from 'date-fns'
+import { format, isWithinInterval, parseISO, startOfDay } from 'date-fns'
 import { Spinner } from '@/components/ui/spinner'
+import { Calendar } from '@/components/ui/calendar'
+import type { DateRange } from 'react-day-picker'
 
 export default function ListingDetail() {
   const { id } = useParams<{ id: string }>()
@@ -29,8 +31,8 @@ export default function ListingDetail() {
   const [similar, setSimilar] = useState<Listing[]>([])
   const [loading, setLoading] = useState(true)
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [dateRange, setDateRange] = useState<DateRange | undefined>()
+  const [existingBookings, setExistingBookings] = useState<any[]>([])
   const [message, setMessage] = useState('')
   const [bookingLoading, setBookingLoading] = useState(false)
   const [requestSent, setRequestSent] = useState(false)
@@ -39,35 +41,82 @@ export default function ListingDetail() {
     async function fetchListing() {
       if (!id) return
       const [{ data: listingData }, { data: reviewData }] = await Promise.all([
-        supabase.from('listings').select('*, owner:profiles(*)').eq('id', id).maybeSingle(),
-        supabase.from('reviews').select('*, author:profiles(name, avatar_url)').eq('listing_id', id).order('created_at', { ascending: false }),
+        supabase.from('listings').select('*, owner:public_profiles!owner_id(*)').eq('id', id).maybeSingle(),
+        supabase.from('reviews').select('*, author:public_profiles!author_id(name, avatar_url)').eq('listing_id', id).order('created_at', { ascending: false }),
       ])
       if (!listingData) { navigate('/browse'); return }
       setListing(listingData as Listing)
       setReviews(reviewData ?? [])
       const { data: similarData } = await supabase
-        .from('listings').select('*, owner:profiles(*)')
+        .from('listings').select('*, owner:public_profiles!owner_id(*)')
         .eq('category', listingData.category).eq('is_active', true).neq('id', id).limit(4)
+      
+      const { data: bookingsData } = await supabase
+        .from('bookings').select('start_date, end_date').eq('listing_id', id).in('status', ['PENDING', 'ACCEPTED'])
+      
       setSimilar((similarData as Listing[]) ?? [])
+      setExistingBookings(bookingsData ?? [])
       setLoading(false)
     }
     fetchListing()
   }, [id, navigate])
 
   const avgRating = reviews.length > 0 ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0
-  const totalDays = startDate && endDate ? getDaysBetween(new Date(startDate), new Date(endDate)) : 0
+  const totalDays = dateRange?.from && dateRange?.to ? getDaysBetween(dateRange.from, dateRange.to) : 0
   const totalPrice = listing ? totalDays * listing.price_per_day : 0
 
   const handleBooking = async () => {
     if (!user) { navigate('/login'); return }
-    if (!listing || !startDate || !endDate) { toast.error('Please select dates'); return }
+    if (!listing || !dateRange?.from || !dateRange?.to) { toast.error('Please select dates'); return }
     if (user.id === listing.owner_id) { toast.error("You can't rent your own item"); return }
+    
+    // Check if the selected range spans across disabled dates
+    const spansDisabled = existingBookings.some(b => {
+       const start = parseISO(b.start_date)
+       const end = parseISO(b.end_date)
+       // If any part of the disabled booking falls within our selected range, it's an overlap
+       return (start <= dateRange.to! && end >= dateRange.from!)
+    })
+    
+    if (spansDisabled) {
+       toast.error('Selected dates overlap with an unavailable period.')
+       setDateRange(undefined)
+       return
+    }
+    
     setBookingLoading(true)
-    const { error } = await supabase.from('bookings').insert({ listing_id: listing.id, renter_id: user.id, start_date: startDate, end_date: endDate, total_days: totalDays, total_price: totalPrice, message })
-    if (error) toast.error('Failed to send request.')
-    else { toast.success('Rental request sent!'); setRequestSent(true) }
+    const { error } = await supabase.from('bookings').insert({ 
+      listing_id: listing.id, 
+      renter_id: user.id, 
+      start_date: format(dateRange!.from!, 'yyyy-MM-dd'), 
+      end_date: format(dateRange!.to!, 'yyyy-MM-dd'), 
+      total_days: totalDays, 
+      total_price: totalPrice, 
+      message 
+    })
+    if (error) {
+      if (error.message.includes('overlap')) {
+        toast.error('These dates are no longer available. Please choose different dates.')
+        setDateRange(undefined)
+      } else {
+        toast.error('Failed to send request: ' + error.message)
+      }
+    } else {
+      toast.success('Rental request sent!')
+      setRequestSent(true)
+    }
     setBookingLoading(false)
   }
+
+  const disabledDays = [
+    { before: new Date() },
+    (date: Date) => {
+      const day = startOfDay(date)
+      return existingBookings.some(b => 
+        isWithinInterval(day, { start: startOfDay(parseISO(b.start_date)), end: startOfDay(parseISO(b.end_date)) })
+      )
+    }
+  ]
 
   if (loading) return <div className="min-h-screen flex items-center justify-center pt-16"><Spinner className="size-8" /></div>
   if (!listing) return null
@@ -123,12 +172,21 @@ export default function ListingDetail() {
 
             {listing.owner && (
               <div className="bg-card rounded-2xl border border-border p-6 mb-6">
-                <h3 className="font-display font-semibold mb-4">About the Owner</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-display font-semibold">About the Owner</h3>
+                  <Link to={`/profile/${listing.owner_id}`} className="text-sm font-medium text-[var(--brand)] hover:underline">
+                    View Profile
+                  </Link>
+                </div>
                 <div className="flex items-start gap-4">
-                  <UserAvatar name={listing.owner.name} avatarUrl={listing.owner.avatar_url} size="lg" />
+                  <Link to={`/profile/${listing.owner_id}`}>
+                    <UserAvatar name={listing.owner.name} avatarUrl={listing.owner.avatar_url} size="lg" className="hover:opacity-90 transition-opacity" />
+                  </Link>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-semibold">{listing.owner.name}</h4>
+                      <Link to={`/profile/${listing.owner_id}`} className="hover:underline">
+                        <h4 className="font-semibold">{listing.owner.name}</h4>
+                      </Link>
                       {listing.owner.is_verified && <CheckCircle className="size-4 text-green-500" />}
                     </div>
                     <p className="text-sm text-muted-foreground mb-1">{listing.owner.city}</p>
@@ -182,15 +240,20 @@ export default function ListingDetail() {
                   <span className="text-3xl font-bold price-display text-[var(--brand)]">{formatPrice(listing.price_per_day)}</span>
                   <span className="text-muted-foreground">/ day</span>
                 </div>
-                <div className="space-y-3 mb-4">
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground mb-1 block uppercase tracking-wider">Start Date</label>
-                    <input type="date" value={startDate} min={format(new Date(), 'yyyy-MM-dd')} onChange={(e) => setStartDate(e.target.value)} className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20" />
+                <div className="mb-4 flex flex-col items-center border rounded-xl bg-card overflow-hidden">
+                  <div className="w-full bg-muted/50 px-4 py-2 border-b">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Dates</label>
                   </div>
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground mb-1 block uppercase tracking-wider">End Date</label>
-                    <input type="date" value={endDate} min={startDate || format(addDays(new Date(), 1), 'yyyy-MM-dd')} onChange={(e) => setEndDate(e.target.value)} className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20" />
-                  </div>
+                  <Calendar
+                    mode="range"
+                    selected={dateRange}
+                    onSelect={setDateRange}
+                    disabled={disabledDays}
+                    className="p-3 w-full max-w-full flex justify-center"
+                    classNames={{
+                      months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
+                    }}
+                  />
                 </div>
                 <div className="mb-4">
                   <label className="text-xs font-semibold text-muted-foreground mb-1 block uppercase tracking-wider">Message (optional)</label>
@@ -212,7 +275,7 @@ export default function ListingDetail() {
                 ) : user?.id === listing.owner_id ? (
                   <Button asChild className="w-full bg-[var(--navy)] text-white"><Link to={`/edit-listing/${listing.id}`}>Edit Your Listing</Link></Button>
                 ) : (
-                  <Button onClick={handleBooking} disabled={bookingLoading || !startDate || !endDate} className="w-full bg-[var(--brand)] hover:bg-[oklch(0.52_0.22_20)] text-white h-11 text-base">
+                  <Button onClick={handleBooking} disabled={bookingLoading || !dateRange?.from || !dateRange?.to} className="w-full bg-[var(--brand)] hover:bg-[oklch(0.52_0.22_20)] text-white h-11 text-base">
                     {bookingLoading ? <Spinner /> : 'Request to Rent'}
                   </Button>
                 )}

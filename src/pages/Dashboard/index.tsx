@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom'
-import { LayoutDashboard, Package, ShoppingBag, Bell, MessageSquare, User, LogOut, PlusCircle, Menu } from 'lucide-react'
+import { LayoutDashboard, Package, ShoppingBag, Bell, MessageSquare, User, LogOut, PlusCircle, Menu, Landmark } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UserAvatar } from '@/components/shared/UserAvatar'
 import { useAuth } from '@/hooks/useAuth'
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/dashboard/my-rentals', label: 'My Rentals', icon: ShoppingBag },
   { to: '/dashboard/requests', label: 'Requests', icon: Bell },
   { to: '/messages', label: 'Messages', icon: MessageSquare },
+  { to: '/dashboard/payouts', label: 'Payouts', icon: Landmark },
   { to: '/dashboard/profile', label: 'Profile Settings', icon: User },
 ]
 

@@ -38,7 +38,7 @@ export default function DashboardOverview() {
         if (listingIds.length > 0) {
           promises.push(
             supabase.from('bookings')
-              .select('*, renter:profiles!renter_id(name,avatar_url), listing:listings(title,price_per_day)')
+              .select('*, renter:public_profiles!renter_id(name,avatar_url), listing:listings(title,price_per_day)')
               .in('listing_id', listingIds)
               .order('created_at', { ascending: false })
               .limit(5)

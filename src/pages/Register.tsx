@@ -70,33 +70,42 @@ export default function Register() {
   const password = watch('password', '')
 
   const onSubmit = async (data: FormData) => {
-    const { data: signUpData, error } = await supabase.auth.signUp({
-      email: data.email,
-      password: data.password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/verified`,
-        data: { name: data.name, city: data.city },
-      },
-    })
-    if (error) {
-      let msg = error.message
-      if (msg.includes('already registered')) {
-        msg = 'An account with this email already exists'
-      } else if (msg.toLowerCase().includes('sending confirmation email') || msg.toLowerCase().includes('unexpected_failure')) {
-        msg = 'Failed to send confirmation email. This is usually caused by incorrect SMTP credentials (e.g. Gmail App Password or Resend Key) in your Supabase Dashboard settings under Authentication -> Providers -> SMTP.'
-      }
-      toast.error(msg, { duration: 10000 })
-      return
-    }
-
-    if (signUpData.session) {
-      toast.success('Account created! Welcome to RentItOut!')
-      navigate('/dashboard')
-    } else {
-      toast.success('Check your inbox to verify your email address before logging in.', {
-        duration: 8000,
+    try {
+      const { data: signUpData, error } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/verified`,
+          data: { name: data.name, city: data.city },
+        },
       })
-      navigate('/login')
+      if (error) {
+        let msg = error.message
+        if (msg.includes('already registered')) {
+          msg = 'An account with this email already exists'
+        } else if (msg.toLowerCase().includes('sending confirmation email') || msg.toLowerCase().includes('unexpected_failure')) {
+          msg = 'Failed to send confirmation email. This is usually caused by incorrect SMTP credentials (e.g. Gmail App Password or Resend Key) in your Supabase Dashboard settings under Authentication -> Providers -> SMTP.'
+        }
+        toast.error(msg, { duration: 10000 })
+        return
+      }
+
+      if (signUpData.session) {
+        toast.success('Account created! Welcome to RentItOut!')
+        navigate('/dashboard')
+      } else {
+        toast.success('Check your inbox to verify your email address before logging in.', {
+          duration: 8000,
+        })
+        navigate('/login')
+      }
+    } catch (err: any) {
+      console.error('Registration network error:', err)
+      if (err?.message?.includes('Failed to fetch') || err?.name === 'TypeError') {
+        toast.error('Unable to connect to the Supabase server. Please verify your Supabase project URL and status in .env.', { duration: 8000 })
+      } else {
+        toast.error(err?.message || 'Failed to create account. Please try again.', { duration: 6000 })
+      }
     }
   }
 

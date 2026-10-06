@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { supabase, type Listing, CATEGORIES, CONDITIONS } from '@/lib/supabase'
 import { getCategoryIcon, cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/spinner'
+import { useDebounce } from '@/hooks/useDebounce'
 
 const SORT_OPTIONS = [
   { value: 'newest', label: 'Newest First' },
@@ -22,25 +23,53 @@ const SORT_OPTIONS = [
 ]
 
 export default function Browse() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [listings, setListings] = useState<Listing[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
 
   // Filters
   const [search, setSearch] = useState(searchParams.get('q') ?? '')
   const [selectedCategories, setSelectedCategories] = useState<string[]>(
-    searchParams.get('category') ? [searchParams.get('category')!] : []
+    searchParams.get('category') ? searchParams.get('category')!.split(',') : []
   )
-  const [selectedConditions, setSelectedConditions] = useState<string[]>([])
-  const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000])
-  const [city, setCity] = useState('')
-  const [sortBy, setSortBy] = useState('newest')
+  const [selectedConditions, setSelectedConditions] = useState<string[]>(
+    searchParams.get('condition') ? searchParams.get('condition')!.split(',') : []
+  )
+  const [priceRange, setPriceRange] = useState<[number, number]>([
+    Number(searchParams.get('minPrice')) || 0,
+    Number(searchParams.get('maxPrice')) || 5000
+  ])
+  const [city, setCity] = useState(searchParams.get('city') ?? '')
+  const [sortBy, setSortBy] = useState(searchParams.get('sort') ?? 'newest')
+  const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
+  const pageSize = 20
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   const [userLat, setUserLat] = useState<number | null>(null)
   const [userLng, setUserLng] = useState<number | null>(null)
+
+  const debouncedSearch = useDebounce(search, 400)
+  const debouncedCity = useDebounce(city, 400)
+  const debouncedPrice = useDebounce(priceRange, 400)
+
+  // Sync to URL
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (debouncedSearch) params.set('q', debouncedSearch)
+    if (selectedCategories.length) params.set('category', selectedCategories.join(','))
+    if (selectedConditions.length) params.set('condition', selectedConditions.join(','))
+    if (debouncedPrice[0] > 0) params.set('minPrice', debouncedPrice[0].toString())
+    if (debouncedPrice[1] < 5000) params.set('maxPrice', debouncedPrice[1].toString())
+    if (debouncedCity) params.set('city', debouncedCity)
+    if (sortBy !== 'newest') params.set('sort', sortBy)
+    if (page > 1) params.set('page', page.toString())
+    
+    setSearchParams(params, { replace: true })
+  }, [debouncedSearch, selectedCategories, selectedConditions, debouncedPrice, debouncedCity, sortBy, page, setSearchParams])
+
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -57,30 +86,39 @@ export default function Browse() {
 
   const fetchListings = useCallback(async () => {
     setLoading(true)
+    setError(null)
     
-    // Utilize the advanced search RPC for FTS and Haversine sorting
-    const { data } = await supabase.rpc('search_listings_advanced', {
-      search_query: search || null,
-      user_lat: userLat,
-      user_lng: userLng,
-      categories: selectedCategories.length > 0 ? selectedCategories : null,
-      conditions: selectedConditions.length > 0 ? selectedConditions : null,
-      min_price: priceRange[0],
-      max_price: priceRange[1],
-      city_filter: city || null,
-      sort_by: sortBy
-    })
+    try {
+      const { data, error: err } = await supabase.rpc('search_listings_advanced', {
+        search_query: debouncedSearch || null,
+        user_lat: userLat,
+        user_lng: userLng,
+        categories: selectedCategories.length > 0 ? selectedCategories : null,
+        conditions: selectedConditions.length > 0 ? selectedConditions : null,
+        min_price: debouncedPrice[0],
+        max_price: debouncedPrice[1],
+        city_filter: debouncedCity || null,
+        sort_by: sortBy,
+        limit_count: pageSize,
+        offset_count: (page - 1) * pageSize
+      })
 
-    // Map RPC flattened fields back to object structure for ListingCard
-    const mappedListings = (data || []).map((row: any) => ({
-      ...row,
-      owner: { name: row.owner_name, avatar_url: row.owner_avatar }
-    })) as Listing[]
+      if (err) throw err
 
-    setListings(mappedListings)
-    setTotal(mappedListings.length)
-    setLoading(false)
-  }, [search, selectedCategories, selectedConditions, priceRange, city, sortBy, userLat, userLng])
+      const mappedListings = (data || []).map((row: any) => ({
+        ...row,
+        owner: { name: row.owner_name, avatar_url: row.owner_avatar }
+      })) as Listing[]
+
+      setListings(mappedListings)
+      setTotal(data?.[0]?.total_count ?? 0)
+    } catch (e: any) {
+      console.error('Failed to fetch listings:', e)
+      setError('We couldn\'t load the listings. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }, [debouncedSearch, selectedCategories, selectedConditions, debouncedPrice, debouncedCity, sortBy, page, userLat, userLng])
 
   useEffect(() => {
     fetchListings()
@@ -105,6 +143,7 @@ export default function Browse() {
     setPriceRange([0, 5000])
     setCity('')
     setSortBy('newest')
+    setPage(1)
   }
 
   const hasFilters =
@@ -289,32 +328,70 @@ export default function Browse() {
               {loading ? 'Loading...' : `Showing ${listings.length} of ${total} items`}
             </p>
 
-            {loading ? (
+            {error ? (
+              <EmptyState
+                icon="⚠️"
+                title="Something went wrong"
+                description={error}
+                action={
+                  <Button onClick={fetchListings} variant="outline">
+                    Try Again
+                  </Button>
+                }
+              />
+            ) : loading ? (
               <div className="flex justify-center py-20">
                 <Spinner className="size-8" />
               </div>
             ) : listings.length === 0 ? (
               <EmptyState
                 icon="🔍"
-                title="No listings found"
-                description="Try adjusting your filters or search terms."
+                title={hasFilters || search ? 'No matching listings' : 'No listings available'}
+                description={hasFilters || search ? 'Try adjusting your filters or search terms.' : 'Check back later for new items!'}
                 action={
-                  <Button onClick={clearFilters} variant="outline" className="gap-2">
-                    <X className="size-4" /> Clear filters
-                  </Button>
+                  (hasFilters || search) ? (
+                    <Button onClick={clearFilters} variant="outline" className="gap-2">
+                      <X className="size-4" /> Clear filters
+                    </Button>
+                  ) : undefined
                 }
               />
             ) : (
-              <div className={cn(
-                'grid gap-5',
-                view === 'grid'
-                  ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3'
-                  : 'grid-cols-1'
-              )}>
-                {listings.map((listing) => (
-                  <ListingCard key={listing.id} listing={listing} />
-                ))}
-              </div>
+              <>
+                <div className={cn(
+                  'grid gap-5 mb-8',
+                  view === 'grid'
+                    ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3'
+                    : 'grid-cols-1'
+                )}>
+                  {listings.map((listing) => (
+                    <ListingCard key={listing.id} listing={listing} />
+                  ))}
+                </div>
+
+                {/* Pagination Controls */}
+                {total > pageSize && (
+                  <div className="flex items-center justify-center gap-2 mt-8 border-t border-border pt-8">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm text-muted-foreground mx-4">
+                      Page {page} of {Math.ceil(total / pageSize)}
+                    </span>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setPage(p => Math.min(Math.ceil(total / pageSize), p + 1))}
+                      disabled={page >= Math.ceil(total / pageSize)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

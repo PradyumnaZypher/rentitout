@@ -15,14 +15,12 @@ export default function Login() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log('Form submitted', email, password)
     setIsSubmitting(true)
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email: email,
         password: password,
       })
-      console.log('Supabase response:', data, error)
       if (error) {
         let msg = error.message
         if (msg === 'Invalid login credentials') {

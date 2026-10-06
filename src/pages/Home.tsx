@@ -36,7 +36,7 @@ export default function Home() {
     async function fetchFeatured() {
       const { data } = await supabase
         .from('listings')
-        .select('*, owner:profiles(*)')
+        .select('*, owner:public_profiles!owner_id(*)')
         .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(8)

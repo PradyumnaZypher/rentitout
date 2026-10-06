@@ -77,6 +77,40 @@ export default function Messages() {
         }
         setIsOtherTyping(someoneElseTyping)
       })
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${activeConvId}`,
+        },
+        (payload) => {
+          const newMsgId = payload.new.id
+          setMessages((prev) => {
+            // Duplicate message protection
+            if (prev.find((m) => m.id === newMsgId)) return prev
+            
+            // Fetch full message with sender profile
+            supabase
+              .from('messages')
+              .select('*, sender:public_profiles!sender_id(name,avatar_url)')
+              .eq('id', newMsgId)
+              .maybeSingle()
+              .then(({ data }) => {
+                if (data) {
+                  setMessages((msgs) => {
+                    if (msgs.find((m) => m.id === newMsgId)) return msgs
+                    return [...msgs, data as Message]
+                  })
+                  loadConversations()
+                }
+              })
+            
+            return prev
+          })
+        }
+      )
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await channel.track({ typing: false })
@@ -93,7 +127,7 @@ export default function Messages() {
     if (!user) return
     const { data } = await supabase
       .from('messages')
-      .select('*, sender:profiles!sender_id(name,avatar_url), receiver:profiles!receiver_id(name,avatar_url)')
+      .select('*, sender:public_profiles!sender_id(name,avatar_url), receiver:public_profiles!receiver_id(name,avatar_url)')
       .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
       .order('created_at', { ascending: false })
 
@@ -124,10 +158,10 @@ export default function Messages() {
     const [{ data: msgs }, { data: otherProfile }] = await Promise.all([
       supabase
         .from('messages')
-        .select('*, sender:profiles!sender_id(name,avatar_url)')
+        .select('*, sender:public_profiles!sender_id(name,avatar_url)')
         .eq('conversation_id', convId)
         .order('created_at', { ascending: true }),
-      supabase.from('profiles').select('*').eq('id', otherUserId).maybeSingle(),
+      supabase.from('public_profiles').select('*').eq('id', otherUserId).maybeSingle(),
     ])
     setMessages((msgs as Message[]) ?? [])
     setOtherUser(otherProfile)
@@ -157,7 +191,7 @@ export default function Messages() {
       receiver_id: receiverId ?? otherUser.id,
       conversation_id: activeConvId,
       listing_id: listingId,
-    }).select('*, sender:profiles!sender_id(name,avatar_url)').maybeSingle()
+    }).select('*, sender:public_profiles!sender_id(name,avatar_url)').maybeSingle()
 
     if (!error && data) {
       setMessages((prev) => [...prev, data as Message])

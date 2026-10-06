@@ -48,6 +48,7 @@ export type Booking = {
   total_days: number
   total_price: number
   status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'COMPLETED' | 'CANCELLED'
+  payment_status: 'UNPAID' | 'PAID'
   message: string | null
   renter_id: string
   listing_id: string

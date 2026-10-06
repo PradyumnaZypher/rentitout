@@ -3,7 +3,15 @@ import { Link } from 'react-router-dom'
 import { Calendar, MapPin, Star } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from '@/components/ui/alert-dialog'
+import { Textarea } from '@/components/ui/textarea'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { StarRating } from '@/components/shared/StarRating'
+import { PaymentCheckout } from '@/components/payments/PaymentCheckout'
 import { supabase, type Booking } from '@/lib/supabase'
 import { formatPrice, formatDate, cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
@@ -24,31 +32,74 @@ export default function MyRentals() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<string>('all')
 
-  useEffect(() => {
+  const [reviewBooking, setReviewBooking] = useState<Booking | null>(null)
+  const [rating, setRating] = useState(5)
+  const [comment, setComment] = useState('')
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState<string | null>(null)
+  const [checkoutBooking, setCheckoutBooking] = useState<Booking | null>(null)
+
+  const loadRentals = async () => {
     if (!user) return
-    async function loadRentals() {
-      if (!user) return
-      try {
-        const { data } = await supabase
-          .from('bookings')
-          .select('*, listing:listings(title,images,city,area,category,price_per_day,owner_id)')
-          .eq('renter_id', user.id)
-          .order('created_at', { ascending: false })
-        setBookings((data ?? []) as unknown as Booking[])
-      } catch (err) {
-        console.error('Error loading rentals:', err)
-      } finally {
-        setLoading(false)
-      }
+    try {
+      const { data } = await supabase
+        .from('bookings')
+        .select('*, listing:listings(title,images,city,area,category,price_per_day,owner_id), reviews(id)')
+        .eq('renter_id', user.id)
+        .order('created_at', { ascending: false })
+      setBookings((data ?? []) as unknown as Booking[])
+    } catch (err) {
+      console.error('Error loading rentals:', err)
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     loadRentals()
   }, [user])
 
-  const cancelBooking = async (id: string) => {
+  const executeCancel = async () => {
+    if (!confirmCancel) return
+    const id = confirmCancel
     const { error } = await supabase.from('bookings').update({ status: 'CANCELLED' }).eq('id', id)
-    if (error) { toast.error('Failed to cancel'); return }
+    if (error) { 
+       toast.error(error.message || 'Failed to cancel')
+       setConfirmCancel(null)
+       return 
+    }
     setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status: 'CANCELLED' } : b))
     toast.success('Booking cancelled')
+    setConfirmCancel(null)
+  }
+
+  const submitReview = async () => {
+    if (!reviewBooking || !user) return
+    setIsSubmittingReview(true)
+    try {
+      const { error } = await supabase.from('reviews').insert({
+        rating,
+        comment,
+        author_id: user.id,
+        listing_id: reviewBooking.listing_id,
+        booking_id: reviewBooking.id
+      })
+      if (error) {
+        if (error.message.includes('duplicate key') || error.message.includes('unique constraint')) {
+          toast.error('You have already reviewed this booking.')
+        } else {
+          toast.error(error.message)
+        }
+      } else {
+        toast.success('Review submitted successfully')
+        setBookings((prev) => prev.map((b) => b.id === reviewBooking.id ? { ...b, reviews: [{ id: 'new-review' }] } : b))
+        setReviewBooking(null)
+      }
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setIsSubmittingReview(false)
+    }
   }
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter)
@@ -122,23 +173,111 @@ export default function MyRentals() {
                       {formatPrice(booking.total_price)}
                     </span>
                   </div>
-                  {booking.status === 'PENDING' && (
-                    <Button size="sm" variant="outline" onClick={() => cancelBooking(booking.id)} className="text-destructive border-destructive/30 hover:bg-destructive/10">
-                      Cancel Request
-                    </Button>
+                  {(booking.status === 'PENDING' || booking.status === 'ACCEPTED') && (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setConfirmCancel(booking.id)} className="text-destructive border-destructive/30 hover:bg-destructive/10">
+                        Cancel Rental
+                      </Button>
+                      {booking.status === 'ACCEPTED' && booking.payment_status !== 'PAID' && (
+                        <Button size="sm" onClick={() => setCheckoutBooking(booking)} className="bg-[var(--brand)] text-white hover:bg-[var(--navy)]">
+                          Pay Now
+                        </Button>
+                      )}
+                      {booking.payment_status === 'PAID' && (
+                        <Button size="sm" variant="outline" disabled className="text-green-700 bg-green-50 border-green-200">
+                          Paid
+                        </Button>
+                      )}
+                    </div>
                   )}
-                  {booking.status === 'COMPLETED' && (
-                    <Button size="sm" variant="outline" className="gap-2" asChild>
-                      <Link to={`/listing/${booking.listing_id}`}>
+                  {booking.status === 'COMPLETED' ? (
+                    booking.reviews && booking.reviews.length > 0 ? (
+                      <Button size="sm" variant="outline" disabled className="gap-2 text-green-600 border-green-200 bg-green-50">
+                        <Star className="size-3" /> Review Submitted
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" className="gap-2" onClick={() => {
+                          setReviewBooking(booking)
+                          setRating(5)
+                          setComment('')
+                      }}>
                         <Star className="size-3" /> Leave Review
-                      </Link>
-                    </Button>
+                      </Button>
+                    )
+                  ) : booking.status === 'CANCELLED' || booking.status === 'DECLINED' ? (
+                    <p className="text-xs text-muted-foreground mt-2">Ineligible for review.</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-2">Complete rental to leave a review.</p>
                   )}
                 </div>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      <Dialog open={!!reviewBooking} onOpenChange={(open) => !open && setReviewBooking(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Leave a Review</DialogTitle>
+            <DialogDescription>
+              Share your experience with {reviewBooking?.listing?.title}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-sm font-medium">Rating</span>
+              <StarRating rating={rating} maxRating={5} interactive onChange={setRating} size="lg" />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Comment (Optional)</label>
+              <Textarea 
+                value={comment} 
+                onChange={(e) => setComment(e.target.value)} 
+                placeholder="How was your experience?"
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReviewBooking(null)}>Cancel</Button>
+            <Button className="bg-[var(--brand)] text-white" onClick={submitReview} disabled={isSubmittingReview}>
+              {isSubmittingReview ? <Spinner className="size-4" /> : 'Submit Review'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!confirmCancel} onOpenChange={(open) => !open && setConfirmCancel(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Rental?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel this rental? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Go Back</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={executeCancel}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Cancel Rental
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {checkoutBooking && (
+        <PaymentCheckout 
+          booking={checkoutBooking}
+          open={!!checkoutBooking}
+          onOpenChange={(open) => !open && setCheckoutBooking(null)}
+          onSuccess={() => {
+            setCheckoutBooking(null)
+            loadRentals()
+          }}
+        />
       )}
     </div>
   )
