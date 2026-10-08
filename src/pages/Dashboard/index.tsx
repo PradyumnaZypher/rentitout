@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom'
-import { LayoutDashboard, Package, ShoppingBag, Bell, MessageSquare, User, LogOut, PlusCircle, Menu, Landmark } from 'lucide-react'
+import { LayoutDashboard, Package, ShoppingBag, Bell, MessageSquare, User, LogOut, PlusCircle, Menu, Landmark, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UserAvatar } from '@/components/shared/UserAvatar'
 import { useAuth } from '@/hooks/useAuth'
@@ -23,6 +23,14 @@ export default function DashboardLayout() {
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    supabase.rpc('is_current_user_admin').then(({ data }) => {
+      if (data) setIsAdmin(true)
+    })
+  }, [user])
 
   useEffect(() => {
     if (!user) return
@@ -95,6 +103,23 @@ export default function DashboardLayout() {
             )}
           </Link>
         ))}
+        {isAdmin && (
+          <div className="pt-2 mt-2 border-t border-sidebar-border">
+            <Link
+              to="/admin"
+              onClick={() => setMobileOpen(false)}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors',
+                location.pathname.startsWith('/admin')
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40'
+              )}
+            >
+              <ShieldCheck className="size-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+              Admin Portal
+            </Link>
+          </div>
+        )}
       </nav>
 
       {/* Actions */}

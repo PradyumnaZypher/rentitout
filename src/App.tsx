@@ -64,6 +64,9 @@ function AppRoutes() {
       {/* Admin routes with navbar + footer */}
       <Route element={<AdminGuard />}>
         <Route path="/admin" element={<><Navbar /><AdminDashboard /><Footer /></>} />
+        <Route path="/admin/dashboard" element={<><Navbar /><AdminDashboard /><Footer /></>} />
+        <Route path="/admin-dashboard" element={<><Navbar /><AdminDashboard /><Footer /></>} />
+        <Route path="/dashboard/admin" element={<><Navbar /><AdminDashboard /><Footer /></>} />
         <Route path="/admin/financials" element={<><Navbar /><AdminFinancials /><Footer /></>} />
       </Route>
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { Menu, X, Search, ChevronDown, LogOut, User, LayoutDashboard, PlusCircle, Package } from 'lucide-react'
+import { Menu, X, Search, ChevronDown, LogOut, User, LayoutDashboard, PlusCircle, Package, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -13,13 +13,26 @@ import { UserAvatar } from '@/components/shared/UserAvatar'
 import { NotificationCenter } from '@/components/notifications/NotificationCenter'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 
 export function Navbar() {
   const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+
+  useEffect(() => {
+    if (!user) {
+      setIsAdmin(false)
+      return
+    }
+    supabase.rpc('is_current_user_admin').then(({ data, error }) => {
+      if (error || !data) setIsAdmin(false)
+      else setIsAdmin(true)
+    })
+  }, [user])
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10)
@@ -132,6 +145,17 @@ export function Navbar() {
                       List New Item
                     </Link>
                   </DropdownMenuItem>
+                  {isAdmin && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link to="/admin" className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-medium">
+                          <ShieldCheck className="size-4 text-indigo-600 dark:text-indigo-400" />
+                          Admin Portal
+                        </Link>
+                      </DropdownMenuItem>
+                    </>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => { signOut(); navigate('/') }}
@@ -193,6 +217,11 @@ export function Navbar() {
                 <Link to="/list-item" className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium hover:bg-muted">
                   <PlusCircle className="size-4" /> List an Item
                 </Link>
+                {isAdmin && (
+                  <Link to="/admin" className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-indigo-600 hover:bg-indigo-50">
+                    <ShieldCheck className="size-4" /> Admin Portal
+                  </Link>
+                )}
                 <button
                   onClick={() => { signOut(); navigate('/') }}
                   className="flex w-full items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-destructive hover:bg-destructive/10"
